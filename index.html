@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'">
+  <title>FaceRoom · склад</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+<main id="login" class="login">
+  <div class="login-brand">FACEROOM<span>ОПЕРАЦИОННЫЙ КАБИНЕТ</span></div>
+  <div class="login-card">
+    <div class="eyebrow">СКЛАД И ЗАКУПКИ</div>
+    <h1>Всё на своих местах.</h1>
+    <p>Заказы, остатки и движение товаров<br>по всей сети — в одном кабинете.</p>
+    <form id="login-form">
+      <label for="password">Пароль доступа</label>
+      <div class="password-field"><input id="password" type="password" autocomplete="current-password" required><button id="reveal" type="button" aria-label="Показать пароль">Показать</button></div>
+      <button id="enter" class="primary" type="submit">Открыть отчёты <span>↗</span></button>
+      <p id="login-error" role="alert"></p>
+    </form>
+    <div class="login-note">Обновление каждый понедельник в 06:00 по Москве</div>
+  </div>
+  <footer>FaceRoom · внутренние отчёты сети</footer>
+</main>
+<div id="dashboard" class="shell" hidden>
+  <aside class="sidebar">
+    <a class="wordmark" href="#">FACEROOM<span>ПРОСТРАНСТВО ПОРЯДКА</span></a>
+    <div class="nav-caption">УПРАВЛЕНИЕ СКЛАДОМ</div>
+    <nav id="tabs" aria-label="Отчёты">
+      <button data-tab="orders" aria-current="page"><span>↗</span>Заказы<span class="nav-count" id="order-count"></span></button>
+      <button data-tab="stock"><span>▦</span>Остатки</button>
+      <button data-tab="turnover"><span>↻</span>Оборачиваемость</button>
+      <button data-tab="cost"><span>₽</span>Стоимость склада</button>
+    </nav>
+    <div class="sidebar-bottom"><span class="dot"></span> Данные из YCLIENTS<p>По понедельникам · 06:00 МСК</p><button id="logout">Выйти из кабинета ↗</button></div>
+  </aside>
+  <main class="workspace">
+    <header class="topbar"><span>FaceRoom <span class="slash">/</span> Склад и закупки</span><span class="badge">Еженедельный отчёт</span></header>
+    <div id="demo-banner" class="notice" hidden>Предпросмотр на вымышленных данных. Эти значения не относятся к реальному складу.</div>
+    <div id="stale-banner" class="notice" hidden>Последнее обновление было больше 8 дней назад. Проверьте запуск обновления в GitHub.</div>
+    <section class="heading"><div><div class="eyebrow">ОБЗОР СЕТИ</div><h1 id="report-title">Заказы</h1><p id="report-description"></p></div><button id="download-excel" class="export">↓ Все отчёты в Excel</button></section>
+    <section class="metrics" aria-label="Показатели сети">
+      <article><span>К заказу по сети</span><strong id="metric-order">—</strong><small>упаковок на 14 дней</small></article>
+      <article><span>Стоимость склада</span><strong id="metric-cost">—</strong><small>по выбранным брендам · текущий месяц</small></article>
+      <article><span>Отрицательные остатки</span><strong id="metric-check">—</strong><small>позиций требуют проверки учёта</small></article>
+      <article><span>Филиалов в отчёте</span><strong id="metric-branches">—</strong><small>единая картина по всей сети</small></article>
+    </section>
+    <section class="report-card">
+      <div class="card-heading"><h2 id="table-title">Потребность в закупке</h2><span id="updated"></span></div>
+      <div class="filters">
+        <label class="search"><span class="sr-only">Поиск</span><input id="search" type="search" placeholder="Найти товар или артикул…"></label>
+        <label><span class="sr-only">Филиал</span><select id="branch" aria-label="Филиал"></select></label>
+        <label><span class="sr-only">Склад</span><select id="kind" aria-label="Склад"><option value="">Оба склада</option><option>Расходники</option><option>Товары</option></select></label>
+        <label id="category-filter"><span class="sr-only">Категория</span><select id="category" aria-label="Категория"></select></label>
+        <label id="month-filter" hidden><span class="sr-only">Месяц</span><select id="month" aria-label="Месяц"></select></label>
+        <button id="download-csv" class="text-button">↓ CSV</button>
+      </div>
+      <div id="period" class="period"></div>
+      <div id="table-container" class="table-container" tabindex="0" aria-label="Таблица отчёта, возможна горизонтальная прокрутка"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
+      <div class="table-footer"><span id="row-count" role="status" aria-live="polite"></span><div><button id="prev" aria-label="Предыдущая страница">←</button><span id="page-number"></span><button id="next" aria-label="Следующая страница">→</button></div></div>
+    </section>
+    <p id="report-note" class="report-note"></p>
+    <p id="quality-note" class="report-note" hidden></p>
+    <footer class="page-footer"><span>FACEROOM · внутренняя аналитика</span><span>Источник — YCLIENTS</span></footer>
+  </main>
+</div>
+</body>
+</html>
