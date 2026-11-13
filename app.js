@@ -1,15 +1,17 @@
 "use strict";
 const $ = (id) => document.getElementById(id);
 const fmt = new Intl.NumberFormat("ru-RU", {maximumFractionDigits: 2});
-const money = new Intl.NumberFormat("ru-RU", {style:"currency",currency:"RUB",maximumFractionDigits:0});
+const money = new Intl.NumberFormat("ru-RU", {style:"currency",currency:"RUB",minimumFractionDigits:0,maximumFractionDigits:2});
 const dateFmt = new Intl.DateTimeFormat("ru-RU", {timeZone:"Europe/Moscow",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
 const bytes = (s) => Uint8Array.from(atob(s), c => c.charCodeAt(0));
 let data = null, tab = "orders", page = 0, sortKey = "order", descending = true;
 let turnoverKeys = new Set();
 let visibleRows = [], activeFields = [];
+let costView="detail", metricValues=[];
+const qtyFmt=new Intl.NumberFormat("ru-RU",{maximumFractionDigits:3});
 const size = 100;
 const configs = {
-  orders:{title:"Заказы",sub:"Всё, что нужно заказать к следующему периоду.",table:"Потребность в закупке",note:"Заказ = расход за 14 завершённых дней − остаток, с округлением вверх до упаковки. Отрицательный остаток принимается за ноль и требует проверки учёта.",fields:[["branch","Филиал"],["kind","Склад"],["title","Товар"],["article","Артикул"],["demand","Расход, уп"],["stock","Остаток, уп"],["order","К заказу, уп"],["days","Дней запаса"],["flag","Проверить"]]},
+  orders:{title:"Заказы",sub:"Всё, что нужно заказать к следующему периоду.",table:"Потребность в закупке",note:"Заказ = расход за 14 завершённых дней − остаток, с округлением вверх до упаковки. Сумма заказа — оценка по текущим закупочным ценам. Отрицательный остаток принимается за ноль и требует проверки учёта.",fields:[["branch","Филиал"],["kind","Склад"],["title","Товар"],["article","Артикул"],["demand","Расход, уп / ед."],["stock","Остаток, уп / ед."],["order","К заказу, уп / ед."],["unitCost","Цена за уп, ₽"],["orderCost","Сумма заказа, ₽"],["days","Дней запаса"],["flag","Проверить"]]},
   stock:{title:"Остатки",sub:"Товары и расходники по каждому филиалу сети.",table:"Остатки по филиалам",note:"Все значения приведены к упаковкам. Товары и расходники показаны отдельно; отрицательные остатки сохранены для проверки учёта."},
   turnover:{title:"Оборачиваемость",sub:"Скорость расхода, запас в днях и позиции без движения.",table:"Движение товаров",note:"Расчёт по 45 завершённым дням для товаров и расходников. Охват ограничен выбранными категориями брендов. ∞ означает отсутствие положительного расхода.",fields:[["branch","Филиал"],["kind","Склад"],["title","Товар"],["article","Артикул"],["stock","Остаток, уп"],["consumption","Расход, уп"],["perDay","Уп/день"],["days","Дней запаса"],["turns","Оборот/год"],["flag","Проверить"]]},
   cost:{title:"Стоимость склада",sub:"Остатки в деньгах — по месяцам, категориям, брендам и филиалам.",table:"Стоимость остатков",note:"Исторические остатки оцениваются по текущим закупочным ценам. Текущий месяц — промежуточный результат на дату обновления. Comfort Zone и Eclado учитываются только на складе расходников.",fields:[["branch","Филиал"],["kind","Склад"],["brand","Бренд"],["category","Категория"],["month","Месяц"],["cost","Стоимость, ₽"]]}
@@ -18,6 +20,7 @@ class MultiFilter {
   constructor(id, label) {
     this.root=$(id);this.label=label;this.values=[];this.selected=new Set();
     this.summary=this.root.querySelector("summary");
+    this.caption=document.createElement("span");this.caption.className="multi-caption";this.summary.replaceChildren(this.caption);
     const panel=document.createElement("div");panel.className="multi-panel";
     const tools=document.createElement("div");tools.className="multi-tools";
     for(const [text,all] of [["Выбрать все",true],["Очистить",false]]){
@@ -50,32 +53,100 @@ class MultiFilter {
   sync() {
     for(const input of this.list.querySelectorAll("input"))input.checked=this.selected.has(input.value);
     const count=this.selected.size;
-    this.summary.textContent=this.label+": "+(!count?"ничего не выбрано":count===this.values.length?"все":count===1?([...this.selected][0]||"Без категории"):`выбрано ${count}`);
+    this.caption.textContent=this.label+": "+(!count?"ничего не выбрано":count===this.values.length?"все":count===1?([...this.selected][0]||"Без категории"):`выбрано ${count}`);
     this.summary.title=[...this.selected].map(value=>value||"Без категории").join(", ");
   }
   includes(value) {return this.selected.has(value??"");}
   changed() {page=0;render();}
 }
-const filters={branch:new MultiFilter("branch","Филиалы"),kind:new MultiFilter("kind","Склады"),category:new MultiFilter("category","Категории"),month:new MultiFilter("month","Месяцы")};
+const filters={branch:new MultiFilter("branch","Филиалы"),kind:new MultiFilter("kind","Склады"),category:new MultiFilter("category","Категории"),month:new MultiFilter("month","Месяцы"),sign:new MultiFilter("sign","Остатки")};
 function closeFilters(){for(const filter of Object.values(filters))filter.root.open=false;}
 document.addEventListener("click",event=>{if(!event.target.closest(".multi-filter"))closeFilters();});
 document.addEventListener("keydown",event=>{if(event.key==="Escape"){const active=Object.values(filters).find(filter=>filter.root.open);closeFilters();if(active)active.summary.focus();}});
 function hasTurnover(row) {return !!row&&turnoverKeys.has(JSON.stringify([row.branchId,row.goodId,row.kind]));}
-function numberText(value, key, row) {if(value===null||value===undefined)return key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":"—";return typeof value==="number"?(key==="cost"?money.format(value):fmt.format(value)):String(value);}
+function isNegative(row){return row.isNegative===true||row.stock<0;}
+function quantityKey(key){return ["demand","stock","order","consumption","perDay","total"].includes(key)||/^b\d+$/.test(key);}
+function numberText(value, key, row) {
+  if(value===null||value===undefined)return key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":"—";
+  if(typeof value==="number"&&row?.kind==="Расходники"&&quantityKey(key)){
+    const native=row.nativeQuantities?row.nativeQuantities[key]:row[key+"Amount"];
+    const suffix=key==="perDay"?"/день":"";
+    return `${qtyFmt.format(value)} уп${suffix} / ${native===null||native===undefined||!row.serviceUnit?"—":qtyFmt.format(native)+" "+row.serviceUnit+suffix}`;
+  }
+  return typeof value==="number"?(["cost","orderCost","unitCost","delta"].includes(key)?money.format(value):key==="change"?fmt.format(value)+" %":fmt.format(value)):String(value);
+}
 function save(name, raw, type) {const url=URL.createObjectURL(new Blob([raw],{type}));const a=document.createElement("a");a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function stockMatrix(rows) {
   const branches=data.branches.filter(b=>filters.branch.includes(b.name));
   const groups=new Map();
-  for(const row of rows){const key=JSON.stringify([row.kind,row.article||row.title.toLocaleLowerCase("ru")]);let group=groups.get(key);if(!group){group={kind:row.kind,category:row.category,title:row.title,article:row.article,total:0};for(const b of branches)group["b"+b.id]=0;groups.set(key,group);}group["b"+row.branchId]=(group["b"+row.branchId]||0)+row.stock;group.total+=row.stock;}
+  for(const row of rows){
+    const key=JSON.stringify([row.kind,row.article||row.title.toLocaleLowerCase("ru"),row.kind==="Расходники"?[row.serviceUnit,row.packSize]:null]);
+    let group=groups.get(key);
+    if(!group){group={kind:row.kind,category:row.category,title:row.title,article:row.article,total:0,serviceUnit:row.serviceUnit,nativeQuantities:{total:0}};for(const b of branches){group["b"+b.id]=0;group.nativeQuantities["b"+b.id]=0;}groups.set(key,group);}
+    const column="b"+row.branchId;group[column]=(group[column]||0)+row.stock;group.total+=row.stock;
+    for(const field of [column,"total"]){if(group.nativeQuantities[field]!==null)group.nativeQuantities[field]=row.stockAmount==null?null:(group.nativeQuantities[field]||0)+row.stockAmount;}
+  }
   activeFields=[["kind","Склад"],["category","Категория"],["title","Товар"],["article","Артикул"],...branches.map(b=>["b"+b.id,b.name]),["total","Всего, уп"]];
   return [...groups.values()];
+}
+function reportRows(){return tab==="cost"&&costView==="dynamics"?(data.costOpening||[]):data[tab];}
+function monthlyTotals(rows){
+  if(!filters.branch.selected.size||!filters.kind.selected.size||!filters.category.selected.size)return [];
+  return [...filters.month.selected].sort().map(month=>({month,date:month+"-01",cost:rows.filter(r=>r.month===month).reduce((s,r)=>s+r.cost,0)}));
+}
+function dynamicsRows(rows){
+  const months=monthlyTotals(rows);
+  return months.map((row,i)=>{const previous=months[i-1];return {...row,delta:previous?row.cost-previous.cost:null,change:previous&&previous.cost!==0?(row.cost-previous.cost)/previous.cost*100:null};});
+}
+function renderMetrics(rows){
+  const sum=key=>rows.reduce((s,r)=>s+(r[key]||0),0),negatives=rows.filter(isNegative).length;
+  const count=rows.length,branches=new Set(rows.map(r=>r.branchId)).size;
+  const metric=(label,value,hint,display)=>({label,value,hint,display:display??fmt.format(value)});
+  if(tab==="orders"){
+    const missing=rows.filter(r=>r.order>0&&r.orderCost==null).length;
+    const priced=rows.filter(r=>r.order>0&&r.orderCost!=null).length;
+    metricValues=[metric("Сумма заказа",sum("orderCost"),missing?`Неполная оценка: ${missing} поз. без закупочной цены`:"По текущим закупочным ценам",missing&&!priced?"—":(missing?"от ":"")+money.format(sum("orderCost"))),
+      metric("К заказу",sum("order"),"Упаковок по выбранным условиям"),metric("Позиций к заказу",rows.filter(r=>r.order>0).length,`Филиалов: ${branches}`),metric("Отрицательные остатки",negatives,"Позиций требуют проверки учёта")];
+  }else if(tab==="stock"){
+    const missing=rows.filter(r=>r.stock>0&&r.stockValue==null).length;
+    const priced=rows.filter(r=>r.stock>0&&r.stockValue!=null).length;
+    metricValues=[metric("Стоимость остатка",sum("stockValue"),missing?`Неполная оценка: ${missing} поз. без цены`:"Закупочные цены · положительный остаток",missing&&!priced?"—":(missing?"от ":"")+money.format(sum("stockValue"))),
+      metric("Остаток, уп",sum("stock"),"С учётом отрицательных значений"),metric("Отрицательные остатки",negatives,`Из ${count} позиций по филиалам`),metric("Филиалов с остатками",branches,"По установленным фильтрам")];
+  }else if(tab==="turnover"){
+    metricValues=[metric("Расход за 45 дней",sum("consumption"),"Упаковок по выбранным условиям"),metric("Остаток, уп",sum("stock"),"Текущий остаток выбранных позиций"),
+      metric("Без расхода",rows.filter(r=>r.stock>0&&r.consumption<=0).length,"Позиций с положительным остатком"),metric("Отрицательные остатки",negatives,`Из ${count} позиций по филиалам`)];
+  }else{
+    const totals=monthlyTotals(rows),first=totals[0],last=totals[totals.length-1];
+    const date=month=>costView==="dynamics"?"01."+month.slice(5)+"."+month.slice(0,4):month;
+    metricValues=[metric("Стоимость · "+(last?date(last.month):"нет месяцев"),last?.cost||0,costView==="dynamics"?"Итого на начало последнего выбранного месяца":"На конец месяца · текущий месяц на дату среза",money.format(last?.cost||0)),
+      metric("Первый месяц · "+(first?date(first.month):"—"),first?.cost||0,"Итого по выбранным филиалам и категориям",money.format(first?.cost||0)),
+      metric("Изменение за выборку",first&&last?last.cost-first.cost:0,"Последний выбранный месяц минус первый",money.format(first&&last?last.cost-first.cost:0)),metric("Месяцев в выборке",totals.length,"Стоимость разных месяцев не суммируется")];
+  }
+  const fragment=document.createDocumentFragment();
+  for(const item of metricValues){const card=document.createElement("article"),label=document.createElement("span"),value=document.createElement("strong"),hint=document.createElement("small");if(item.label==="Отрицательные остатки"&&item.value>0)card.className="metric-warning";label.textContent=item.label;value.textContent=item.display;hint.textContent=item.hint;card.append(label,value,hint);fragment.append(card);}
+  $("metrics").replaceChildren(fragment);
+}
+function renderChart(rows){
+  const root=$("cost-chart");root.replaceChildren();root.hidden=tab!=="cost"||costView!=="dynamics"||!rows.length;
+  if(root.hidden)return;
+  const ns="http://www.w3.org/2000/svg",svg=document.createElementNS(ns,"svg");
+  const width=Math.max(600,rows.length*78),height=250,pad=55,max=Math.max(1,...rows.map(r=>r.cost));
+  svg.setAttribute("viewBox",`0 0 ${width} ${height}`);svg.setAttribute("role","img");svg.setAttribute("aria-label","Стоимость склада на начало выбранных месяцев, в рублях");
+  const element=(name,attributes,text)=>{const el=document.createElementNS(ns,name);for(const [key,value] of Object.entries(attributes))el.setAttribute(key,value);if(text!==undefined)el.textContent=text;svg.append(el);return el;};
+  for(let i=0;i<=3;i++){const y=height-pad-i*(height-pad*2)/3;element("line",{x1:pad,y1:y,x2:width-20,y2:y,class:"chart-grid"});element("text",{x:pad-8,y:y+4,"text-anchor":"end",class:"chart-label"},fmt.format(Math.round(max*i/3/1000))+" тыс.");}
+  const points=rows.map((row,i)=>({x:rows.length===1?width/2:pad+i*(width-pad-20)/(rows.length-1),y:height-pad-row.cost/max*(height-pad*2),row}));
+  element("polyline",{points:points.map(p=>p.x+","+p.y).join(" "),class:"chart-line"});
+  for(const p of points){const circle=element("circle",{cx:p.x,cy:p.y,r:4,class:"chart-point",tabindex:0});const title=document.createElementNS(ns,"title");title.textContent=p.row.date+": "+money.format(p.row.cost);circle.append(title);element("text",{x:p.x,y:height-25,"text-anchor":"middle",class:"chart-label"},p.row.month.slice(5)+"."+p.row.month.slice(2,4));}
+  root.append(svg);
 }
 function render(){
   if(!data)return;
   const cfg=configs[tab];
   const search=$("search").value.trim().toLocaleLowerCase("ru");
-  let rows=data[tab].filter(row=>filters.branch.includes(row.branch)&&filters.kind.includes(row.kind)&&filters.category.includes(row.category)&&(tab!=="cost"||filters.month.includes(row.month))&&(!search||[row.title,row.article,row.brand,row.category].some(x=>String(x||"").toLocaleLowerCase("ru").includes(search))));
-  if(tab==="stock")rows=stockMatrix(rows);else activeFields=cfg.fields;
+  let rows=reportRows().filter(row=>filters.branch.includes(row.branch)&&filters.kind.includes(row.kind)&&filters.category.includes(row.category)&&(tab==="cost"?filters.month.includes(row.month):filters.sign.includes(isNegative(row)?"Отрицательные":"Нулевые и положительные"))&&(!search||[row.title,row.article,row.brand,row.category].some(x=>String(x||"").toLocaleLowerCase("ru").includes(search))));
+  renderMetrics(rows);
+  if(tab==="stock")rows=stockMatrix(rows);else if(tab==="cost"&&costView==="dynamics"){rows=dynamicsRows(rows);activeFields=[["date","На начало месяца"],["cost","Итого, ₽"],["delta","Изменение, ₽"],["change","Изменение, %"]];}else activeFields=cfg.fields;
+  renderChart(rows);
   rows.sort((a,b)=>{let av=a[sortKey],bv=b[sortKey];if(sortKey==="days"){av=av??Infinity;bv=bv??Infinity;}let cmp=typeof av==="number"&&typeof bv==="number"?(av===bv?0:av>bv?1:-1):String(av??"").localeCompare(String(bv??""),"ru",{numeric:true});return descending?-cmp:cmp;});
   visibleRows=rows;
   page=Math.min(page,Math.max(0,Math.ceil(rows.length/size)-1));
@@ -90,16 +161,25 @@ function render(){
   $("page-number").textContent=`${page+1} / ${Math.max(1,Math.ceil(rows.length/size))}`;
   $("prev").disabled=page===0;$("next").disabled=(page+1)*size>=rows.length;
   const periods=tab==="orders"?data.periods.orders:tab==="turnover"?data.periods.turnover:null;
-  $("period").textContent=periods?`Расход за ${periods[0]} — ${periods[1]} · остатки на момент обновления`:tab==="cost"?"Оценка по текущим закупочным ценам · ₽":"Остатки в упаковках · в колонках указаны адреса филиалов";
+  $("period").textContent=periods?`Расход за ${periods[0]} — ${periods[1]} · расходники: уп / единицы YCLIENTS`:tab==="cost"?(costView==="dynamics"?"Итого на 00:00 первого числа месяца · изменение к предыдущему выбранному месяцу · текущие закупочные цены":"На конец месяца · текущий месяц на дату среза · текущие закупочные цены"):"В колонках — филиалы · расходники: уп / единицы YCLIENTS";
 }
 function changeTab(name){
   tab=name;page=0;sortKey=tab==="orders"?"order":tab==="cost"?"cost":tab==="turnover"?"days":"title";descending=tab!=="stock";
+  if(tab==="cost"&&costView==="dynamics"){sortKey="date";descending=false;}
   for(const button of $("tabs").querySelectorAll("button")){if(button.dataset.tab===tab)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");}
   const cfg=configs[tab];$("report-title").textContent=cfg.title;$("report-description").textContent=cfg.sub;$("table-title").textContent=cfg.table;$("report-note").textContent=cfg.note;
-  closeFilters();$("month").hidden=tab!=="cost";
-  filters.category.setOptions(data[tab].map(r=>r.category||"").sort());
+  closeFilters();$("month").hidden=tab!=="cost";$("sign").hidden=tab==="cost";$("cost-views").hidden=tab!=="cost";
+  $("search").placeholder=tab==="cost"?"Найти бренд или категорию…":"Найти товар или артикул…";
+  filters.category.setOptions((tab==="cost"?[...data.cost,...(data.costOpening||[])]:data[tab]).map(r=>r.category||"").sort());
+  if(tab==="cost")updateCostView();
   render();
 }
+function updateCostView(){
+  for(const button of $("cost-views").querySelectorAll("button"))button.setAttribute("aria-pressed",String(button.dataset.view===costView));
+  $("table-title").textContent=costView==="dynamics"?"Динамика стоимости · итого на начало месяца":configs.cost.table;
+  $("report-note").textContent=costView==="dynamics"?"Каждая точка — стоимость остатка на начало месяца по выбранным фильтрам. Изменение рассчитано между соседними выбранными месяцами. Оценка по текущим закупочным ценам; отрицательные остатки не увеличивают стоимость.":configs.cost.note;
+}
+function changeCostView(view){costView=view;page=0;sortKey=view==="dynamics"?"date":"cost";descending=view!=="dynamics";if(view==="dynamics")filters.month.setOptions(filters.month.values,filters.month.values);updateCostView();render();}
 function openDashboard(payload){
   if(payload.schemaVersion!==1||!["orders","stock","turnover","cost"].every(key=>Array.isArray(payload[key])))throw new Error("Неподдерживаемый формат отчётов");
   data=payload;
@@ -107,14 +187,12 @@ function openDashboard(payload){
   document.title=data.title;$("login").hidden=true;$("dashboard").hidden=false;$("password").value="";
   filters.branch.setOptions(data.branches.map(b=>b.name),data.branches.map(b=>b.name));
   filters.kind.setOptions(["Расходники","Товары"],["Расходники","Товары"]);
+  filters.sign.setOptions(["Отрицательные","Нулевые и положительные"],["Отрицательные","Нулевые и положительные"]);
   filters.category.setOptions(data.orders.map(r=>r.category||""),[...new Set(data.orders.map(r=>r.category||""))]);
   const months=[...(data.months||new Set(data.cost.map(r=>r.month)))].sort().reverse();filters.month.setOptions(months,months.slice(0,1));
   $("demo-banner").hidden=!data.demo;$("stale-banner").hidden=(Date.now()-new Date(data.updatedAt).getTime())<=8*86400000;
   $("updated").textContent="Срез: "+dateFmt.format(new Date(data.updatedAt))+" МСК";
-  $("metric-order").textContent=fmt.format(data.orders.reduce((s,r)=>s+r.order,0));
-  $("metric-cost").textContent=money.format(data.cost.filter(r=>r.month===months[0]).reduce((s,r)=>s+r.cost,0));
-  $("metric-check").textContent=fmt.format(data.stock.filter(r=>r.stock<0).length);
-  $("metric-branches").textContent=data.branches.length;$("order-count").textContent=data.orders.length;
+  $("order-count").textContent=data.orders.length;costView="detail";$("search").value="";
   const unknown=(data.quality||[]).reduce((s,r)=>s+(r.unknownGoodsTransactions||0),0);
   const unlinked=(data.quality||[]).reduce((s,r)=>s+(r.unlinkedTransactions||0),0);
   const notes=[];
@@ -139,8 +217,9 @@ $("login-form").addEventListener("submit",async event=>{
 });
 $("reveal").onclick=()=>{const show=$("password").type==="password";$("password").type=show?"text":"password";$("reveal").textContent=show?"Скрыть":"Показать";$("reveal").setAttribute("aria-label",show?"Скрыть пароль":"Показать пароль");};
 $("tabs").addEventListener("click",event=>{const target=event.target.closest("button[data-tab]");if(target)changeTab(target.dataset.tab);});
+$("cost-views").addEventListener("click",event=>{const target=event.target.closest("button[data-view]");if(target)changeCostView(target.dataset.view);});
 $("search").addEventListener("input",()=>{page=0;render();});
 $("prev").onclick=()=>{page--;render();};$("next").onclick=()=>{page++;render();};
 $("download-excel").onclick=()=>save("FaceRoom-склад-"+data.updatedAt.slice(0,10)+".xlsx",bytes(data.excel),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-$("download-csv").onclick=()=>{const escape=value=>{let text=String(value??"");if(typeof value!=="number"&&/^[\s]*[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};const lines=[activeFields.map(([,label])=>escape(label)).join(";"),...visibleRows.map(row=>activeFields.map(([key])=>escape(row[key]===null?(key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":""):row[key])).join(";"))];save("FaceRoom-"+tab+".csv","\uFEFF"+lines.join("\r\n"),"text/csv;charset=utf-8");};
-$("logout").onclick=()=>{data=null;turnoverKeys.clear();visibleRows=[];closeFilters();for(const filter of Object.values(filters))filter.setOptions([],[]);$("tbody").replaceChildren();$("dashboard").hidden=true;$("login").hidden=false;$("password").value="";$("password").type="password";$("reveal").textContent="Показать";$("login-error").textContent="";$("password").focus();};
+$("download-csv").onclick=()=>{const escape=value=>{let text=String(value??"");if(typeof value!=="number"&&/^[\s]*[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};const lines=[activeFields.map(([,label])=>escape(label)).join(";"),...visibleRows.map(row=>activeFields.map(([key])=>escape(row.kind==="Расходники"&&quantityKey(key)?numberText(row[key],key,row):row[key]===null?(key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":""):row[key])).join(";"))];save("FaceRoom-"+tab+(tab==="cost"&&costView==="dynamics"?"-dynamics":"")+".csv","\uFEFF"+lines.join("\r\n"),"text/csv;charset=utf-8");};
+$("logout").onclick=()=>{data=null;turnoverKeys.clear();visibleRows=[];metricValues=[];activeFields=[];closeFilters();for(const filter of Object.values(filters))filter.setOptions([],[]);for(const id of ["tbody","thead","metrics","cost-chart"])$(id).replaceChildren();$("dashboard").hidden=true;$("login").hidden=false;$("password").value="";$("password").type="password";$("reveal").textContent="Показать";$("login-error").textContent="";$("password").focus();};

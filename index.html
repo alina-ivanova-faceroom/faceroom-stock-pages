@@ -43,13 +43,12 @@
     <header class="topbar"><span>FaceRoom <span class="slash">/</span> Склад и закупки</span><span class="badge">Еженедельный отчёт</span></header>
     <div id="demo-banner" class="notice" hidden>Предпросмотр на вымышленных данных. Эти значения не относятся к реальному складу.</div>
     <div id="stale-banner" class="notice" hidden>Последнее обновление было больше 8 дней назад. Проверьте запуск обновления в GitHub.</div>
-    <section class="heading"><div><div class="eyebrow">ОБЗОР СЕТИ</div><h1 id="report-title">Заказы</h1><p id="report-description"></p></div><button id="download-excel" class="export">↓ Все отчёты в Excel</button></section>
-    <section class="metrics" aria-label="Показатели сети">
-      <article><span>К заказу по сети</span><strong id="metric-order">—</strong><small>упаковок на 14 дней</small></article>
-      <article><span>Стоимость склада</span><strong id="metric-cost">—</strong><small>по выбранным брендам · текущий месяц</small></article>
-      <article><span>Отрицательные остатки</span><strong id="metric-check">—</strong><small>позиций требуют проверки учёта</small></article>
-      <article><span>Филиалов в отчёте</span><strong id="metric-branches">—</strong><small>единая картина по всей сети</small></article>
-    </section>
+    <section class="heading"><div><div class="eyebrow">ИТОГИ ПО ВЫБОРКЕ</div><h1 id="report-title">Заказы</h1><p id="report-description"></p></div><button id="download-excel" class="export">↓ Все отчёты в Excel</button></section>
+    <div id="cost-views" class="view-switch" role="group" aria-label="Представление стоимости склада" hidden>
+      <button data-view="detail" aria-pressed="true">По категориям · на конец месяца</button>
+      <button data-view="dynamics" aria-pressed="false">Динамика · на начало месяца</button>
+    </div>
+    <section id="metrics" class="metrics" aria-label="Итоги по установленным фильтрам" aria-live="polite"></section>
     <section class="report-card">
       <div class="card-heading"><h2 id="table-title">Потребность в закупке</h2><span id="updated"></span></div>
       <div class="filters">
@@ -58,9 +57,11 @@
         <details id="kind" class="multi-filter"><summary>Склады</summary></details>
         <details id="category" class="multi-filter"><summary>Категории</summary></details>
         <details id="month" class="multi-filter" hidden><summary>Месяцы</summary></details>
+        <details id="sign" class="multi-filter"><summary>Остатки</summary></details>
         <button id="download-csv" class="text-button">↓ CSV</button>
       </div>
       <div id="period" class="period"></div>
+      <div id="cost-chart" class="cost-chart" hidden></div>
       <div id="table-container" class="table-container" tabindex="0" aria-label="Таблица отчёта, возможна горизонтальная прокрутка"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
       <div class="table-footer"><span id="row-count" role="status" aria-live="polite"></span><div><button id="prev" aria-label="Предыдущая страница">←</button><span id="page-number"></span><button id="next" aria-label="Следующая страница">→</button></div></div>
     </section>
