@@ -180,6 +180,33 @@ function updateCostView(){
   $("report-note").textContent=costView==="dynamics"?"Каждая точка — стоимость остатка на начало месяца по выбранным фильтрам. Изменение рассчитано между соседними выбранными месяцами. Оценка по текущим закупочным ценам; отрицательные остатки не увеличивают стоимость.":configs.cost.note;
 }
 function changeCostView(view){costView=view;page=0;sortKey=view==="dynamics"?"date":"cost";descending=view!=="dynamics";if(view==="dynamics")filters.month.setOptions(filters.month.values,filters.month.values);updateCostView();render();}
+function renderCalculationInfo(report){
+  if(!data||!Object.hasOwn(configs,report))return;
+  const guide=data.calculationGuide,root=$("calculation-body");root.replaceChildren();
+  for(const button of $("calculation-tabs").querySelectorAll("button"))button.setAttribute("aria-pressed",String(button.dataset.guide===report));
+  const period=report==="orders"?data.periods.orders:report==="turnover"?data.periods.turnover:null;
+  $("calculation-meta").textContent="Правила выгрузки от "+dateFmt.format(new Date(data.updatedAt))+" МСК"+(period?" · расход: "+period.join(" — "):"");
+  if(!guide?.reports?.[report]){root.textContent="Описание для этой выгрузки пока недоступно. Обновите страницу после следующего расчёта.";return;}
+  const title=document.createElement("h3");title.className="method-report-title";title.textContent=guide.reports[report].title;root.append(title);
+  function appendSections(parent,sections){
+    for(const item of sections){
+      const section=document.createElement("section"),heading=document.createElement("h4");heading.textContent=item.title;section.append(heading);
+      for(const text of item.paragraphs){const paragraph=document.createElement("p");paragraph.textContent=text;section.append(paragraph);}
+      if(item.items.length){const list=document.createElement("ul");for(const text of item.items){const entry=document.createElement("li");entry.textContent=text;list.append(entry);}section.append(list);}
+      parent.append(section);
+    }
+  }
+  appendSections(root,guide.reports[report].sections);
+  const common=document.createElement("details"),summary=document.createElement("summary"),content=document.createElement("div");
+  common.className="method-common";summary.textContent="Общие правила: филиалы, исключения, единицы и качество данных";
+  appendSections(content,guide.common);common.append(summary,content);root.append(common);
+}
+function openCalculationInfo(){if(!data)return;closeFilters();renderCalculationInfo(tab);const dialog=$("calculation-info");if(!dialog.open)dialog.showModal();document.body.classList.add("method-open");}
+$("calculation-button").onclick=openCalculationInfo;
+$("calculation-close").onclick=()=>$("calculation-info").close();
+$("calculation-tabs").addEventListener("click",event=>{const target=event.target.closest("button[data-guide]");if(target)renderCalculationInfo(target.dataset.guide);});
+$("calculation-info").addEventListener("click",event=>{if(event.target===$("calculation-info"))$("calculation-info").close();});
+$("calculation-info").addEventListener("close",()=>document.body.classList.remove("method-open"));
 function openDashboard(payload){
   if(payload.schemaVersion!==1||!["orders","stock","turnover","cost"].every(key=>Array.isArray(payload[key])))throw new Error("Неподдерживаемый формат отчётов");
   data=payload;
@@ -222,4 +249,4 @@ $("search").addEventListener("input",()=>{page=0;render();});
 $("prev").onclick=()=>{page--;render();};$("next").onclick=()=>{page++;render();};
 $("download-excel").onclick=()=>save("FaceRoom-склад-"+data.updatedAt.slice(0,10)+".xlsx",bytes(data.excel),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 $("download-csv").onclick=()=>{const escape=value=>{let text=String(value??"");if(typeof value!=="number"&&/^[\s]*[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};const lines=[activeFields.map(([,label])=>escape(label)).join(";"),...visibleRows.map(row=>activeFields.map(([key])=>escape(row.kind==="Расходники"&&quantityKey(key)?numberText(row[key],key,row):row[key]===null?(key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":""):row[key])).join(";"))];save("FaceRoom-"+tab+(tab==="cost"&&costView==="dynamics"?"-dynamics":"")+".csv","\uFEFF"+lines.join("\r\n"),"text/csv;charset=utf-8");};
-$("logout").onclick=()=>{data=null;turnoverKeys.clear();visibleRows=[];metricValues=[];activeFields=[];closeFilters();for(const filter of Object.values(filters))filter.setOptions([],[]);for(const id of ["tbody","thead","metrics","cost-chart"])$(id).replaceChildren();$("dashboard").hidden=true;$("login").hidden=false;$("password").value="";$("password").type="password";$("reveal").textContent="Показать";$("login-error").textContent="";$("password").focus();};
+$("logout").onclick=()=>{if($("calculation-info").open)$("calculation-info").close();document.body.classList.remove("method-open");data=null;turnoverKeys.clear();visibleRows=[];metricValues=[];activeFields=[];closeFilters();for(const filter of Object.values(filters))filter.setOptions([],[]);for(const id of ["tbody","thead","metrics","cost-chart","calculation-body","calculation-meta"])$(id).replaceChildren();$("dashboard").hidden=true;$("login").hidden=false;$("password").value="";$("password").type="password";$("reveal").textContent="Показать";$("login-error").textContent="";$("password").focus();};

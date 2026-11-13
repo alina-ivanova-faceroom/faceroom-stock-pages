@@ -37,6 +37,7 @@
       <button data-tab="turnover"><span>↻</span>Оборачиваемость</button>
       <button data-tab="cost"><span>₽</span>Стоимость склада</button>
     </nav>
+    <div class="sidebar-tools"><button id="calculation-button" class="calculation-link" type="button" aria-haspopup="dialog"><span aria-hidden="true">ⓘ</span><span>Информация о расчётах<small>Источники, формулы и категории</small></span></button></div>
     <div class="sidebar-bottom"><span class="dot"></span> Данные из YCLIENTS<p>По понедельникам · 06:00 МСК</p><button id="logout">Выйти из кабинета ↗</button></div>
   </aside>
   <main class="workspace">
@@ -69,6 +70,15 @@
     <p id="quality-note" class="report-note" hidden></p>
     <footer class="page-footer"><span>FACEROOM · внутренняя аналитика</span><span>Источник — YCLIENTS</span></footer>
   </main>
+  <dialog id="calculation-info" class="method-dialog" aria-labelledby="calculation-info-title">
+    <div class="method-card">
+      <header class="method-header"><div><div class="eyebrow">FACEROOM · СПРАВКА</div><h2 id="calculation-info-title">Информация о расчётах</h2><p id="calculation-meta"></p></div><button id="calculation-close" class="method-close" type="button" aria-label="Закрыть информацию о расчётах">×</button></header>
+      <div id="calculation-tabs" class="method-tabs" role="group" aria-label="Выберите отчёт">
+        <button type="button" data-guide="orders">Заказы</button><button type="button" data-guide="stock">Остатки</button><button type="button" data-guide="turnover">Оборачиваемость</button><button type="button" data-guide="cost">Стоимость склада</button>
+      </div>
+      <div id="calculation-body" class="method-body"></div>
+    </div>
+  </dialog>
 </div>
 </body>
 </html>
