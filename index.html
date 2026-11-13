@@ -54,10 +54,10 @@
       <div class="card-heading"><h2 id="table-title">Потребность в закупке</h2><span id="updated"></span></div>
       <div class="filters">
         <label class="search"><span class="sr-only">Поиск</span><input id="search" type="search" placeholder="Найти товар или артикул…"></label>
-        <label><span class="sr-only">Филиал</span><select id="branch" aria-label="Филиал"></select></label>
-        <label><span class="sr-only">Склад</span><select id="kind" aria-label="Склад"><option value="">Оба склада</option><option>Расходники</option><option>Товары</option></select></label>
-        <label id="category-filter"><span class="sr-only">Категория</span><select id="category" aria-label="Категория"></select></label>
-        <label id="month-filter" hidden><span class="sr-only">Месяц</span><select id="month" aria-label="Месяц"></select></label>
+        <details id="branch" class="multi-filter"><summary>Филиалы</summary></details>
+        <details id="kind" class="multi-filter"><summary>Склады</summary></details>
+        <details id="category" class="multi-filter"><summary>Категории</summary></details>
+        <details id="month" class="multi-filter" hidden><summary>Месяцы</summary></details>
         <button id="download-csv" class="text-button">↓ CSV</button>
       </div>
       <div id="period" class="period"></div>
