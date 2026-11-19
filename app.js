@@ -8,13 +8,15 @@ let data = null, tab = "orders", page = 0, sortKey = "order", descending = true;
 let turnoverKeys = new Set();
 let visibleRows = [], activeFields = [];
 let costView="detail", metricValues=[];
+let abcView="ranking", abcMetric="revenue", abcPeriod="90d";
 const qtyFmt=new Intl.NumberFormat("ru-RU",{maximumFractionDigits:3});
 const size = 100;
 const configs = {
   orders:{title:"Заказы",sub:"Всё, что нужно заказать к следующему периоду.",table:"Потребность в закупке",note:"Заказ = расход за 14 завершённых дней − остаток, с округлением вверх до упаковки. Сумма заказа — оценка по текущим закупочным ценам. Отрицательный остаток принимается за ноль и требует проверки учёта.",fields:[["branch","Филиал"],["kind","Склад"],["title","Товар"],["article","Артикул"],["demand","Расход, уп / ед."],["stock","Остаток, уп / ед."],["order","К заказу, уп / ед."],["unitCost","Цена за уп, ₽"],["orderCost","Сумма заказа, ₽"],["days","Дней запаса"],["flag","Проверить"]]},
   stock:{title:"Остатки",sub:"Товары и расходники по каждому филиалу сети.",table:"Остатки по филиалам",note:"Все значения приведены к упаковкам. Товары и расходники показаны отдельно; отрицательные остатки сохранены для проверки учёта."},
   turnover:{title:"Оборачиваемость",sub:"Скорость расхода, запас в днях и позиции без движения.",table:"Движение товаров",note:"Расчёт по 45 завершённым дням для товаров и расходников. Охват ограничен выбранными категориями брендов. ∞ означает отсутствие положительного расхода.",fields:[["branch","Филиал"],["kind","Склад"],["title","Товар"],["article","Артикул"],["stock","Остаток, уп"],["consumption","Расход, уп"],["perDay","Уп/день"],["days","Дней запаса"],["turns","Оборот/год"],["flag","Проверить"]]},
-  cost:{title:"Стоимость склада",sub:"Остатки в деньгах — по месяцам, категориям, брендам и филиалам.",table:"Стоимость остатков",note:"Исторические остатки оцениваются по текущим закупочным ценам. Текущий месяц — промежуточный результат на дату обновления. Comfort Zone и Eclado учитываются только на складе расходников.",fields:[["branch","Филиал"],["kind","Склад"],["brand","Бренд"],["category","Категория"],["month","Месяц"],["cost","Стоимость, ₽"]]}
+  cost:{title:"Стоимость склада",sub:"Остатки в деньгах — по месяцам, категориям, брендам и филиалам.",table:"Стоимость остатков",note:"Исторические остатки оцениваются по текущим закупочным ценам. Текущий месяц — промежуточный результат на дату обновления. Comfort Zone и Eclado учитываются только на складе расходников.",fields:[["branch","Филиал"],["kind","Склад"],["brand","Бренд"],["category","Категория"],["month","Месяц"],["cost","Стоимость, ₽"]]},
+  abc:{title:"ABC-анализ товаров",sub:"Какие товары дают основную выручку и объём продаж — по сети и выбранным студиям.",table:"Рейтинг товаров",note:"Группы пересчитываются по выбранным студиям и категориям: A — первые 80%, B — следующие 15%, C — оставшиеся 5% положительного показателя. Товар, пересекающий границу, остаётся в предыдущей группе; равные значения получают одну группу. Возвраты вычитаются. Нулевые и отрицательные значения — «Вне ABC», вне расчёта долей. Поиск и фильтр групп не меняют классификацию."}
 };
 class MultiFilter {
   constructor(id, label) {
@@ -59,7 +61,7 @@ class MultiFilter {
   includes(value) {return this.selected.has(value??"");}
   changed() {page=0;render();}
 }
-const filters={branch:new MultiFilter("branch","Филиалы"),kind:new MultiFilter("kind","Склады"),category:new MultiFilter("category","Категории"),month:new MultiFilter("month","Месяцы"),sign:new MultiFilter("sign","Остатки")};
+const filters={branch:new MultiFilter("branch","Филиалы"),kind:new MultiFilter("kind","Склады"),category:new MultiFilter("category","Категории"),month:new MultiFilter("month","Месяцы"),sign:new MultiFilter("sign","Остатки"),abcClass:new MultiFilter("abc-class","Группы ABC")};
 function closeFilters(){for(const filter of Object.values(filters))filter.root.open=false;}
 document.addEventListener("click",event=>{if(!event.target.closest(".multi-filter"))closeFilters();});
 document.addEventListener("keydown",event=>{if(event.key==="Escape"){const active=Object.values(filters).find(filter=>filter.root.open);closeFilters();if(active)active.summary.focus();}});
@@ -67,6 +69,12 @@ function hasTurnover(row) {return !!row&&turnoverKeys.has(JSON.stringify([row.br
 function isNegative(row){return row.isNegative===true||row.stock<0;}
 function quantityKey(key){return ["demand","stock","order","consumption","perDay","total"].includes(key)||/^b\d+$/.test(key);}
 function numberText(value, key, row) {
+  if(tab==="abc"){
+    if(/^m\d{4}-\d{2}$/.test(key))return (abcMetric==="revenue"?money.format(value||0):qtyFmt.format(value||0))+" · "+(row.monthGroups?.[key.slice(1)]||"Вне ABC");
+    if(["share","cumulativeShare"].includes(key))return value==null?"—":fmt.format(value)+" %";
+    if(key==="revenue")return money.format(value||0);
+    if(key==="quantity"||key==="stock")return qtyFmt.format(value||0);
+  }
   if(value===null||value===undefined)return key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":"—";
   if(typeof value==="number"&&row?.kind==="Расходники"&&quantityKey(key)){
     const native=row.nativeQuantities?row.nativeQuantities[key]:row[key+"Amount"];
@@ -90,6 +98,49 @@ function stockMatrix(rows) {
   return [...groups.values()];
 }
 function reportRows(){return tab==="cost"&&costView==="dynamics"?(data.costOpening||[]):data[tab];}
+function abcProductKey(row){
+  const normalized=value=>String(value||"").trim().toLocaleLowerCase("ru");
+  const identity=normalized(row.article)?["article",normalized(row.article)]:["title",normalized(row.category),normalized(row.title)];
+  return JSON.stringify([...identity,normalized(row.unit),Number(row.packSize)||1]);
+}
+function classifyABC(source,metric){
+  const rows=source.map(row=>({...row})).sort((a,b)=>(b[metric]||0)-(a[metric]||0)||String(a.title).localeCompare(String(b.title),"ru"));
+  const total=rows.reduce((sum,row)=>sum+Math.max(0,row[metric]||0),0);
+  let running=0,index=0;
+  while(index<rows.length){
+    const value=rows[index][metric]||0;
+    let end=index+1;while(end<rows.length&&(rows[end][metric]||0)===value)end++;
+    const group=value>0?(running/total<0.8-1e-12?"A":running/total<0.95-1e-12?"B":"C"):"Вне ABC";
+    const next=running+Math.max(0,value)*(end-index);
+    for(let i=index;i<end;i++)Object.assign(rows[i],{rank:value>0?index+1:null,abcGroup:group,share:value>0?Math.round(value/total*1e6)/1e4:null,cumulativeShare:value>0?Math.round(next/total*1e6)/1e4:null});
+    running=next;index=end;
+  }
+  return rows;
+}
+function aggregateABC(rows){
+  const groups=new Map();
+  for(const row of rows){
+    const key=abcProductKey(row);let group=groups.get(key);
+    if(!group){group={key,title:row.title,article:row.article,category:row.category,unit:row.unit||"уп",packSize:Number(row.packSize)||1,quantity:0,revenue:0,stock:0};groups.set(key,group);}
+    for(const field of ["quantity","revenue","stock"])group[field]+=Number(row[field])||0;
+  }
+  return [...groups.values()].map(row=>({...row,revenue:Math.round((row.revenue+Number.EPSILON)*100)/100,quantity:Math.round((row.quantity+Number.EPSILON)*1000)/1000,stock:Math.round((row.stock+Number.EPSILON)*1000)/1000}));
+}
+function abcRows(){
+  const scope=(data.abc||[]).filter(row=>filters.branch.includes(row.branch)&&filters.category.includes(row.category));
+  const rows=classifyABC(aggregateABC(scope.filter(row=>row.period===abcPeriod)),abcMetric);
+  if(abcView==="dynamics"){
+    const monthly=new Map((data.periods?.abc?.months||[]).map(month=>[month,new Map(classifyABC(aggregateABC(scope.filter(row=>row.period===month)),abcMetric).map(row=>[row.key,row]))]));
+    for(const row of rows){row.monthGroups={};for(const[month,products]of monthly){const item=products.get(row.key);row["m"+month]=item?.[abcMetric]||0;row.monthGroups[month]=item?.abcGroup||"Вне ABC";}}
+  }
+  const search=$("search").value.trim().toLocaleLowerCase("ru");
+  return rows.filter(row=>filters.abcClass.includes(row.abcGroup)&&(!search||[row.title,row.article,row.category].some(value=>String(value||"").toLocaleLowerCase("ru").includes(search))));
+}
+function abcFields(){
+  const fields=[["rank","Место"],["abcGroup","Группа за период"],["title","Товар"],["article","Артикул"],["category","Категория"],["unit","Единица"],["packSize","Фасовка"]];
+  if(abcView==="dynamics")return [...fields,...(data.periods?.abc?.months||[]).map(month=>["m"+month,month+" · "+(abcMetric==="revenue"?"₽":"уп")+" / ABC"])];
+  return [...fields,["revenue","Выручка, ₽"],["quantity","Продано, уп"],["share","Доля, %"],["cumulativeShare","Накопленная доля, %"],["stock","Текущий остаток, уп"]];
+}
 function monthlyTotals(rows){
   if(!filters.branch.selected.size||!filters.kind.selected.size||!filters.category.selected.size)return [];
   return [...filters.month.selected].sort().map(month=>({month,date:month+"-01",cost:rows.filter(r=>r.month===month).reduce((s,r)=>s+r.cost,0)}));
@@ -115,6 +166,8 @@ function renderMetrics(rows){
   }else if(tab==="turnover"){
     metricValues=[metric("Расход за 45 дней",sum("consumption"),"Упаковок по выбранным условиям"),metric("Остаток, уп",sum("stock"),"Текущий остаток выбранных позиций"),
       metric("Без расхода",rows.filter(r=>r.stock>0&&r.consumption<=0).length,"Позиций с положительным остатком"),metric("Отрицательные остатки",negatives,`Из ${count} позиций по филиалам`)];
+  }else if(tab==="abc"){
+    metricValues=[metric("Выручка от продаж",sum("revenue"),"Продажи минус возвраты · по строкам выборки",money.format(sum("revenue"))),metric("Продано, уп",sum("quantity"),"Продажи минус возвраты",qtyFmt.format(sum("quantity"))),metric("Товаров группы A",rows.filter(r=>r.abcGroup==="A").length,"После фильтра студий и категорий"),metric("Вне ABC",rows.filter(r=>r.abcGroup==="Вне ABC").length,"Нет положительного значения выбранного показателя")];
   }else{
     const totals=monthlyTotals(rows),first=totals[0],last=totals[totals.length-1];
     const date=month=>costView==="dynamics"?"01."+month.slice(5)+"."+month.slice(0,4):month;
@@ -143,9 +196,9 @@ function render(){
   if(!data)return;
   const cfg=configs[tab];
   const search=$("search").value.trim().toLocaleLowerCase("ru");
-  let rows=reportRows().filter(row=>filters.branch.includes(row.branch)&&filters.kind.includes(row.kind)&&filters.category.includes(row.category)&&(tab==="cost"?filters.month.includes(row.month):filters.sign.includes(isNegative(row)?"Отрицательные":"Нулевые и положительные"))&&(!search||[row.title,row.article,row.brand,row.category].some(x=>String(x||"").toLocaleLowerCase("ru").includes(search))));
+  let rows=tab==="abc"?abcRows():reportRows().filter(row=>filters.branch.includes(row.branch)&&filters.kind.includes(row.kind)&&filters.category.includes(row.category)&&(tab==="cost"?filters.month.includes(row.month):filters.sign.includes(isNegative(row)?"Отрицательные":"Нулевые и положительные"))&&(!search||[row.title,row.article,row.brand,row.category].some(x=>String(x||"").toLocaleLowerCase("ru").includes(search))));
   renderMetrics(rows);
-  if(tab==="stock")rows=stockMatrix(rows);else if(tab==="cost"&&costView==="dynamics"){rows=dynamicsRows(rows);activeFields=[["date","На начало месяца"],["cost","Итого, ₽"],["delta","Изменение, ₽"],["change","Изменение, %"]];}else activeFields=cfg.fields;
+  if(tab==="abc")activeFields=abcFields();else if(tab==="stock")rows=stockMatrix(rows);else if(tab==="cost"&&costView==="dynamics"){rows=dynamicsRows(rows);activeFields=[["date","На начало месяца"],["cost","Итого, ₽"],["delta","Изменение, ₽"],["change","Изменение, %"]];}else activeFields=cfg.fields;
   renderChart(rows);
   rows.sort((a,b)=>{let av=a[sortKey],bv=b[sortKey];if(sortKey==="days"){av=av??Infinity;bv=bv??Infinity;}let cmp=typeof av==="number"&&typeof bv==="number"?(av===bv?0:av>bv?1:-1):String(av??"").localeCompare(String(bv??""),"ru",{numeric:true});return descending?-cmp:cmp;});
   visibleRows=rows;
@@ -154,26 +207,41 @@ function render(){
   for(const [key,label]of activeFields){const th=document.createElement("th");th.scope="col";if(sortKey===key)th.setAttribute("aria-sort",descending?"descending":"ascending");const button=document.createElement("button");button.textContent=label+(sortKey===key?(descending?" ↓":" ↑"):"");button.onclick=()=>{descending=sortKey===key?!descending:false;sortKey=key;page=0;render();};th.append(button);head.append(th);}
   $("thead").replaceChildren(head);
   const body=document.createDocumentFragment();
-  for(const row of rows.slice(page*size,(page+1)*size)){const tr=document.createElement("tr");for(const[key]of activeFields){const td=document.createElement("td");td.textContent=numberText(row[key],key,row);if(key==="title")td.classList.add("product");if(typeof row[key]==="number")td.classList.add("number");if(key==="order")td.classList.add("order");if(key==="flag"&&row[key])td.classList.add("warning");if(typeof row[key]==="number"&&row[key]<0)td.classList.add("negative");tr.append(td);}body.append(tr);}
+  for(const row of rows.slice(page*size,(page+1)*size)){const tr=document.createElement("tr");for(const[key]of activeFields){const td=document.createElement("td");td.textContent=numberText(row[key],key,row);if(key==="title")td.classList.add("product");if(typeof row[key]==="number")td.classList.add("number");if(key==="order")td.classList.add("order");if(key==="flag"&&row[key])td.classList.add("warning");if(typeof row[key]==="number"&&row[key]<0)td.classList.add("negative");if(tab==="abc"&&(key==="abcGroup"||/^m\d{4}-\d{2}$/.test(key))){const group=key==="abcGroup"?row.abcGroup:row.monthGroups[key.slice(1)];td.classList.add("abc-cell","abc-group-"+(["A","B","C"].includes(group)?group.toLowerCase():"none"));}tr.append(td);}body.append(tr);}
   if(!rows.length){const tr=document.createElement("tr"),td=document.createElement("td");td.colSpan=activeFields.length;td.className="empty";td.textContent="Нет позиций по выбранным условиям";tr.append(td);body.append(tr);}
   $("tbody").replaceChildren(body);
   $("row-count").textContent=rows.length?`${page*size+1}–${Math.min((page+1)*size,rows.length)} из ${fmt.format(rows.length)} позиций`:"0 позиций";
   $("page-number").textContent=`${page+1} / ${Math.max(1,Math.ceil(rows.length/size))}`;
   $("prev").disabled=page===0;$("next").disabled=(page+1)*size>=rows.length;
   const periods=tab==="orders"?data.periods.orders:tab==="turnover"?data.periods.turnover:null;
-  $("period").textContent=periods?`Расход за ${periods[0]} — ${periods[1]} · расходники: уп / единицы YCLIENTS`:tab==="cost"?(costView==="dynamics"?"Итого на 00:00 первого числа месяца · изменение к предыдущему выбранному месяцу · текущие закупочные цены":"На конец месяца · текущий месяц на дату среза · текущие закупочные цены"):"В колонках — филиалы · расходники: уп / единицы YCLIENTS";
+  $("period").textContent=tab==="abc"?abcPeriodText():periods?`Расход за ${periods[0]} — ${periods[1]} · расходники: уп / единицы YCLIENTS`:tab==="cost"?(costView==="dynamics"?"Итого на 00:00 первого числа месяца · изменение к предыдущему выбранному месяцу · текущие закупочные цены":"На конец месяца · текущий месяц на дату среза · текущие закупочные цены"):"В колонках — филиалы · расходники: уп / единицы YCLIENTS";
+}
+function abcPeriodText(){
+  const periods=data.periods?.abc||{},dates=abcPeriod==="90d"?periods.recent:abcPeriod==="ytd"?periods.ytd:null;
+  const range=abcPeriod==="ytd"&&!dates?.length?"с начала года · завершённых дней пока нет":dates?.length?dates.join(" — "):abcPeriod;
+  const metric=abcMetric==="revenue"?"выручка":"количество упаковок";
+  return `Группы за ${range} · показатель: ${metric} · продажи минус возвраты · сегодняшние продажи не включены`+(abcView==="dynamics"?". Каждый месяц — отдельный расчёт ABC; фильтр групп относится к выбранному периоду.":". Доли — от всех товаров выбранных студий и категорий; текущий остаток — на дату среза.");
 }
 function changeTab(name){
+  if(!Object.hasOwn(configs,name)||(name==="abc"&&!Array.isArray(data?.abc)))return;
   tab=name;page=0;sortKey=tab==="orders"?"order":tab==="cost"?"cost":tab==="turnover"?"days":"title";descending=tab!=="stock";
+  if(tab==="abc"){sortKey=abcMetric;descending=true;}
   if(tab==="cost"&&costView==="dynamics"){sortKey="date";descending=false;}
   for(const button of $("tabs").querySelectorAll("button")){if(button.dataset.tab===tab)button.setAttribute("aria-current","page");else button.removeAttribute("aria-current");}
   const cfg=configs[tab];$("report-title").textContent=cfg.title;$("report-description").textContent=cfg.sub;$("table-title").textContent=cfg.table;$("report-note").textContent=cfg.note;
-  closeFilters();$("month").hidden=tab!=="cost";$("sign").hidden=tab==="cost";$("cost-views").hidden=tab!=="cost";
+  closeFilters();$("month").hidden=tab!=="cost";$("sign").hidden=tab==="cost"||tab==="abc";$("kind").hidden=tab==="abc";$("cost-views").hidden=tab!=="cost";$("abc-controls").hidden=tab!=="abc";$("abc-class").hidden=tab!=="abc";
   $("search").placeholder=tab==="cost"?"Найти бренд или категорию…":"Найти товар или артикул…";
   filters.category.setOptions((tab==="cost"?[...data.cost,...(data.costOpening||[])]:data[tab]).map(r=>r.category||"").sort());
   if(tab==="cost")updateCostView();
+  if(tab==="abc")updateABCView();
   render();
 }
+function updateABCView(){
+  for(const button of $("abc-views").querySelectorAll("button"))button.setAttribute("aria-pressed",String(button.dataset.view===abcView));
+  $("table-title").textContent=abcView==="dynamics"?"Помесячная динамика · показатель и группа ABC":"Рейтинг товаров";
+  $("report-note").textContent=configs.abc.note+(abcView==="dynamics"?" В динамике показаны все месяцы с января; текущий месяц — по последний завершённый день. Группы в каждой колонке рассчитаны отдельно.":"");
+}
+function changeABCView(view){abcView=view;page=0;updateABCView();render();}
 function updateCostView(){
   for(const button of $("cost-views").querySelectorAll("button"))button.setAttribute("aria-pressed",String(button.dataset.view===costView));
   $("table-title").textContent=costView==="dynamics"?"Динамика стоимости · итого на начало месяца":configs.cost.table;
@@ -215,11 +283,16 @@ function openDashboard(payload){
   filters.branch.setOptions(data.branches.map(b=>b.name),data.branches.map(b=>b.name));
   filters.kind.setOptions(["Расходники","Товары"],["Расходники","Товары"]);
   filters.sign.setOptions(["Отрицательные","Нулевые и положительные"],["Отрицательные","Нулевые и положительные"]);
+  filters.abcClass.setOptions(["A","B","C","Вне ABC"],["A","B","C","Вне ABC"]);
   filters.category.setOptions(data.orders.map(r=>r.category||""),[...new Set(data.orders.map(r=>r.category||""))]);
   const months=[...(data.months||new Set(data.cost.map(r=>r.month)))].sort().reverse();filters.month.setOptions(months,months.slice(0,1));
   $("demo-banner").hidden=!data.demo;$("stale-banner").hidden=(Date.now()-new Date(data.updatedAt).getTime())<=8*86400000;
   $("updated").textContent="Срез: "+dateFmt.format(new Date(data.updatedAt))+" МСК";
   $("order-count").textContent=data.orders.length;costView="detail";$("search").value="";
+  abcView="ranking";abcMetric="revenue";abcPeriod=data.periods?.abc?.default||"90d";$("abc-metric").value=abcMetric;
+  const abcAvailable=Array.isArray(data.abc);for(const button of document.querySelectorAll('[data-tab="abc"],[data-guide="abc"]'))button.hidden=!abcAvailable;
+  const abcOptions=[["90d","Последние 90 завершённых дней"],["ytd",data.periods?.abc?.ytd?.length?"С начала года":"С начала года · завершённых дней пока нет"],...(data.periods?.abc?.months||[]).slice().reverse().map(month=>[month,month])];
+  $("abc-period").replaceChildren(...abcOptions.map(([value,label])=>{const option=document.createElement("option");option.value=value;option.textContent=label;return option;}));$("abc-period").value=abcPeriod;
   const unknown=(data.quality||[]).reduce((s,r)=>s+(r.unknownGoodsTransactions||0),0);
   const unlinked=(data.quality||[]).reduce((s,r)=>s+(r.unlinkedTransactions||0),0);
   const notes=[];
@@ -245,8 +318,11 @@ $("login-form").addEventListener("submit",async event=>{
 $("reveal").onclick=()=>{const show=$("password").type==="password";$("password").type=show?"text":"password";$("reveal").textContent=show?"Скрыть":"Показать";$("reveal").setAttribute("aria-label",show?"Скрыть пароль":"Показать пароль");};
 $("tabs").addEventListener("click",event=>{const target=event.target.closest("button[data-tab]");if(target)changeTab(target.dataset.tab);});
 $("cost-views").addEventListener("click",event=>{const target=event.target.closest("button[data-view]");if(target)changeCostView(target.dataset.view);});
+$("abc-views").addEventListener("click",event=>{const target=event.target.closest("button[data-view]");if(target)changeABCView(target.dataset.view);});
+$("abc-metric").onchange=()=>{abcMetric=$("abc-metric").value;sortKey=abcMetric;descending=true;page=0;render();};
+$("abc-period").onchange=()=>{abcPeriod=$("abc-period").value;page=0;render();};
 $("search").addEventListener("input",()=>{page=0;render();});
 $("prev").onclick=()=>{page--;render();};$("next").onclick=()=>{page++;render();};
 $("download-excel").onclick=()=>save("FaceRoom-склад-"+data.updatedAt.slice(0,10)+".xlsx",bytes(data.excel),"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-$("download-csv").onclick=()=>{const escape=value=>{let text=String(value??"");if(typeof value!=="number"&&/^[\s]*[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};const lines=[activeFields.map(([,label])=>escape(label)).join(";"),...visibleRows.map(row=>activeFields.map(([key])=>escape(row.kind==="Расходники"&&quantityKey(key)?numberText(row[key],key,row):row[key]===null?(key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":""):row[key])).join(";"))];save("FaceRoom-"+tab+(tab==="cost"&&costView==="dynamics"?"-dynamics":"")+".csv","\uFEFF"+lines.join("\r\n"),"text/csv;charset=utf-8");};
+$("download-csv").onclick=()=>{const escape=value=>{let text=String(value??"");if(typeof value!=="number"&&/^[\s]*[=+@\-\t\r]/.test(text))text="'"+text;return '"'+text.replace(/"/g,'""')+'"';};const lines=[activeFields.map(([,label])=>escape(label)).join(";"),...visibleRows.map(row=>activeFields.map(([key])=>escape((tab==="abc"&&/^m\d{4}-\d{2}$/.test(key))||(row.kind==="Расходники"&&quantityKey(key))?numberText(row[key],key,row):row[key]===null?(key==="days"&&(tab==="turnover"||hasTurnover(row))?"∞":""):row[key])).join(";"))];save("FaceRoom-"+tab+(tab==="cost"&&costView==="dynamics"?"-dynamics":tab==="abc"?"-"+abcMetric+"-"+abcPeriod+"-"+abcView:"")+".csv","\uFEFF"+lines.join("\r\n"),"text/csv;charset=utf-8");};
 $("logout").onclick=()=>{if($("calculation-info").open)$("calculation-info").close();document.body.classList.remove("method-open");data=null;turnoverKeys.clear();visibleRows=[];metricValues=[];activeFields=[];closeFilters();for(const filter of Object.values(filters))filter.setOptions([],[]);for(const id of ["tbody","thead","metrics","cost-chart","calculation-body","calculation-meta"])$(id).replaceChildren();$("dashboard").hidden=true;$("login").hidden=false;$("password").value="";$("password").type="password";$("reveal").textContent="Показать";$("login-error").textContent="";$("password").focus();};

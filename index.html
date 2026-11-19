@@ -36,6 +36,7 @@
       <button data-tab="stock"><span>▦</span>Остатки</button>
       <button data-tab="turnover"><span>↻</span>Оборачиваемость</button>
       <button data-tab="cost"><span>₽</span>Стоимость склада</button>
+      <button data-tab="abc" hidden><span>ABC</span>ABC-анализ товаров</button>
     </nav>
     <div class="sidebar-tools"><button id="calculation-button" class="calculation-link" type="button" aria-haspopup="dialog"><span aria-hidden="true">ⓘ</span><span>Информация о расчётах<small>Источники, формулы и категории</small></span></button></div>
     <div class="sidebar-bottom"><span class="dot"></span> Данные из YCLIENTS<p>Ежедневно · 06:00 МСК</p><button id="logout">Выйти из кабинета ↗</button></div>
@@ -49,6 +50,11 @@
       <button data-view="detail" aria-pressed="true">По категориям · на конец месяца</button>
       <button data-view="dynamics" aria-pressed="false">Динамика · на начало месяца</button>
     </div>
+    <div id="abc-controls" class="abc-controls" hidden>
+      <label>Показатель<select id="abc-metric"><option value="revenue">Выручка от продаж</option><option value="quantity">Продано, упаковок</option></select></label>
+      <label>Период<select id="abc-period"></select></label>
+      <div id="abc-views" class="view-switch" role="group" aria-label="Представление ABC-анализа"><button data-view="ranking" aria-pressed="true">Рейтинг товаров</button><button data-view="dynamics" aria-pressed="false">Динамика с января</button></div>
+    </div>
     <section id="metrics" class="metrics" aria-label="Итоги по установленным фильтрам" aria-live="polite"></section>
     <section class="report-card">
       <div class="card-heading"><h2 id="table-title">Потребность в закупке</h2><span id="updated"></span></div>
@@ -59,6 +65,7 @@
         <details id="category" class="multi-filter"><summary>Категории</summary></details>
         <details id="month" class="multi-filter" hidden><summary>Месяцы</summary></details>
         <details id="sign" class="multi-filter"><summary>Остатки</summary></details>
+        <details id="abc-class" class="multi-filter" hidden><summary>Группы ABC</summary></details>
         <button id="download-csv" class="text-button">↓ CSV</button>
       </div>
       <div id="period" class="period"></div>
@@ -74,7 +81,7 @@
     <div class="method-card">
       <header class="method-header"><div><div class="eyebrow">FACEROOM · СПРАВКА</div><h2 id="calculation-info-title">Информация о расчётах</h2><p id="calculation-meta"></p></div><button id="calculation-close" class="method-close" type="button" aria-label="Закрыть информацию о расчётах">×</button></header>
       <div id="calculation-tabs" class="method-tabs" role="group" aria-label="Выберите отчёт">
-        <button type="button" data-guide="orders">Заказы</button><button type="button" data-guide="stock">Остатки</button><button type="button" data-guide="turnover">Оборачиваемость</button><button type="button" data-guide="cost">Стоимость склада</button>
+        <button type="button" data-guide="orders">Заказы</button><button type="button" data-guide="stock">Остатки</button><button type="button" data-guide="turnover">Оборачиваемость</button><button type="button" data-guide="cost">Стоимость склада</button><button type="button" data-guide="abc" hidden>ABC-анализ товаров</button>
       </div>
       <div id="calculation-body" class="method-body"></div>
     </div>
